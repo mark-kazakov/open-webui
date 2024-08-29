@@ -217,45 +217,39 @@
 
 	const deleteMessageHandler = async (messageId) => {
 		const messageToDelete = history.messages[messageId];
-
 		const parentMessageId = messageToDelete.parentId;
 		const childMessageIds = messageToDelete.childrenIds ?? [];
 
-		const hasDescendantMessages = childMessageIds.some(
-			(childId) => history.messages[childId]?.childrenIds?.length > 0
-		);
+		let orphans = [];
+		if (childMessageIds && childMessageIds.length > 0) {
+			childMessageIds.forEach((childMessageId) => {
+				if (history.messages[childMessageId].id === history.currentId) {
+					history.currentId = parentMessageId;
+				}
+			});
+			orphans = childMessageIds.reduce((acc, childMessageId) => {
+				return acc.concat(history.messages[childMessageId].childrenIds ?? []);
+			}, []);
 
-		history.currentId = parentMessageId;
-		await tick();
+			orphans.forEach((orphanId) => {
+				if (history.messages[orphanId]) {
+					history.messages[orphanId].parentId = parentMessageId;
+				}
+			});
+		}
 
-		// Remove the message itself from the parent message's children array
 		history.messages[parentMessageId].childrenIds = history.messages[
 			parentMessageId
 		].childrenIds.filter((id) => id !== messageId);
 
-		await tick();
+		if (childMessageIds && childMessageIds.length > 0) {
+			history.messages[parentMessageId].childrenIds = orphans;
+		}
 
-		childMessageIds.forEach((childId) => {
-			const childMessage = history.messages[childId];
+		delete history.messages[messageId];
 
-			if (childMessage && childMessage.childrenIds) {
-				if (childMessage.childrenIds.length === 0 && !hasDescendantMessages) {
-					// If there are no other responses/prompts
-					history.messages[parentMessageId].childrenIds = [];
-				} else {
-					childMessage.childrenIds.forEach((grandChildId) => {
-						if (history.messages[grandChildId]) {
-							history.messages[grandChildId].parentId = parentMessageId;
-							history.messages[parentMessageId].childrenIds.push(grandChildId);
-						}
-					});
-				}
-			}
-
-			// Remove child message id from the parent message's children array
-			history.messages[parentMessageId].childrenIds = history.messages[
-				parentMessageId
-			].childrenIds.filter((id) => id !== childId);
+		childMessageIds.forEach((childMessageId) => {
+			delete history.messages[childMessageId];
 		});
 
 		await tick();
